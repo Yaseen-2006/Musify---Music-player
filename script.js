@@ -47,7 +47,7 @@ const state = {
   artist: null,         // selected artist in Artists view
   dirHandle: null,      // permitted music folder
   pending: null,        // stored folder that needs a click to grant permission again
-  booting: !!window.showDirectoryPicker, // true while we look for the remembered folder
+  booting: true,        // true while we look for the remembered folder / music file
   scanned: false,
   lost: false,          // stored folder no longer reachable
   signature: '',        // names of song folders at the last scan (cheap change detection)
@@ -85,6 +85,84 @@ async function dbRun(mode, action) {
 }
 const saveHandle = (handle) => dbRun('readwrite', (store) => store.put(handle, 'musicDir'));
 const getHandle = () => dbRun('readonly', (store) => store.get('musicDir'));
+
+// ===== Zip support: lets phones (no folder picker) use a downloaded music .zip =====
+// The zip is exposed through the same "folder handle" shape as the real picker, so scanning,
+// playing and durations work unchanged. Songs are only unpacked when they are played.
+const MIME = { mp3: 'audio/mpeg', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', json: 'application/json' };
+
+async function openZipAsFolder(zip) {
+  const tailLen = Math.min(zip.size, 65557);
+  const tail = new DataView(await zip.slice(zip.size - tailLen).arrayBuffer());
+  let end = -1;
+  for (let i = tailLen - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { end = i; break; }
+  if (end < 0) throw new Error('this is not a valid zip file');
+  const count = tail.getUint16(end + 10, true), cdSize = tail.getUint32(end + 12, true), cdOff = tail.getUint32(end + 16, true);
+  if (count === 0xFFFF || cdOff === 0xFFFFFFFF) throw new Error('zip is too large (Zip64 is not supported)');
+
+  const cd = new DataView(await zip.slice(cdOff, cdOff + cdSize).arrayBuffer());
+  const text = new TextDecoder();
+  const items = [];
+  for (let p = 0, n = 0; n < count && p + 46 <= cd.byteLength; n++) {
+    if (cd.getUint32(p, true) !== 0x02014b50) break;
+    const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true);
+    const nlen = cd.getUint16(p + 28, true), elen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true);
+    const off = cd.getUint32(p + 42, true);
+    const name = text.decode(new Uint8Array(cd.buffer, p + 46, nlen)).replace(/\\/g, '/');
+    p += 46 + nlen + elen + clen;
+    if (name.endsWith('/') || name.startsWith('__MACOSX/') || name.includes('/._')) continue;
+    items.push({ path: name.split('/').filter(Boolean), method, csize, off });
+  }
+
+  // the library root is the folder that holds the song folders (works with or without an outer "Musify" folder)
+  const roots = new Map();
+  for (const it of items) {
+    if (it.path.length >= 2 && it.path[it.path.length - 1].toLowerCase() === 'song.mp3') {
+      const root = it.path.slice(0, -2).join('/');
+      roots.set(root, (roots.get(root) || 0) + 1);
+    }
+  }
+  const root = [...roots.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+  const rootParts = root ? root.split('/') : [];
+
+  const tree = { dirs: new Map(), files: new Map() };
+  for (const it of items) {
+    if (rootParts.some((part, i) => it.path[i] !== part)) continue;
+    const rel = it.path.slice(rootParts.length);
+    let node = tree;
+    for (const dir of rel.slice(0, -1)) {
+      if (!node.dirs.has(dir)) node.dirs.set(dir, { dirs: new Map(), files: new Map() });
+      node = node.dirs.get(dir);
+    }
+    if (rel.length) node.files.set(rel[rel.length - 1], it);
+  }
+
+  const fileHandle = (name, it) => ({
+    kind: 'file', name,
+    async getFile() {
+      const head = new DataView(await zip.slice(it.off, it.off + 30).arrayBuffer());
+      const start = it.off + 30 + head.getUint16(26, true) + head.getUint16(28, true);
+      let blob = zip.slice(start, start + it.csize);
+      if (it.method === 8) {
+        if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot unzip compressed files');
+        blob = await new Response(blob.stream().pipeThrough(new DecompressionStream('deflate-raw'))).blob();
+      } else if (it.method !== 0) throw new Error('unsupported zip compression');
+      return new File([blob], name, { type: MIME[name.split('.').pop().toLowerCase()] || '', lastModified: zip.lastModified });
+    }
+  });
+  const folderHandle = (name, node) => ({
+    kind: 'directory', name,
+    async queryPermission() { return 'granted'; },
+    async *entries() {
+      for (const [n, child] of node.dirs) yield [n, folderHandle(n, child)];
+      for (const [n, it] of node.files) yield [n, fileHandle(n, it)];
+    }
+  });
+  return folderHandle('music', tree);
+}
+
+const saveZip = (file) => dbRun('readwrite', (store) => store.put(file, 'musicZip'));
+const getZip = () => dbRun('readonly', (store) => store.get('musicZip'));
 
 // ===== Scanning the music folder =====
 async function readSong(folder, name) {
@@ -310,11 +388,12 @@ const VINYL = '<svg class="vinyl" viewBox="0 0 64 64" aria-hidden="true"><circle
 // The zip with the sample music. Put it next to index.html (same folder) with exactly this name.
 const MUSIC_ZIP = 'musify-music.zip';
 const downloadButton = () => `<a class="btn" href="${MUSIC_ZIP}" download="${MUSIC_ZIP}" data-download>${icon('download', 18)}<span>Download Music File</span></a>`;
+const selectZipButton = (primary = true) => `<button class="btn${primary ? ' primary' : ''}" data-action="chooseZip">Select Music File</button>`;
 const emptyState = (title, text, button = '', extra = '') => `<div class="empty ${extra}">${VINYL}<h2>${title}</h2><p>${text}</p>${button}</div>`;
 
 function libraryEmptyState() {
-  if (!window.showDirectoryPicker) return emptyState('Browser not supported', 'Musify needs the File System Access API. Open it in desktop Chrome or Edge. You can still download the music files below.', downloadButton());
   if (state.booting) return emptyState('Opening your library', 'Looking for the music folder you used last time…', '', 'spin');
+  if (!window.showDirectoryPicker) return emptyState('Welcome to Musify', 'This browser can\'t open folders (common on phones). Download the music file, then tap Select Music File and pick the zip you downloaded.', selectZipButton() + ' ' + downloadButton());
   if (state.lost) return emptyState('Music folder not accessible', 'The folder you chose earlier was moved, deleted or its permission was removed. Choose it again.', '<button class="btn primary" data-action="choose">Choose Music Folder</button> ' + downloadButton());
   if (state.pending) return emptyState('Reconnect your music folder', 'Your browser needs your permission again before Musify can read the folder you used last time. Your files stay on your device.', '<button class="btn primary" data-action="reconnect">Reconnect Music Folder</button> <button class="btn" data-action="choose">Choose a different folder</button>');
   if (state.scanned) return emptyState('No music found', 'Add song folders containing song.mp3, info.json and cover.jpg to your music folder, then refresh the library.', '<button class="btn" data-action="refresh">Refresh Library</button>');
@@ -604,7 +683,9 @@ async function askPersistentStorage() { // optional: asks the browser not to evi
 }
 
 const actions = {
+  chooseZip() { $('#zipInput').click(); }, // opens the phone's file picker; the 'change' listener below does the rest
   async choose() {
+    if (!window.showDirectoryPicker) return actions.chooseZip();
     try {
       const handle = await window.showDirectoryPicker({ id: 'musify-music', mode: 'read' });
       state.dirHandle = handle; state.pending = null; state.lost = false;
@@ -643,7 +724,7 @@ document.addEventListener('click', (e) => {
   closeMenu(); // any other click closes an open menu
 
   // download link: let the browser download the zip, just show a message
-  if (t.closest('[data-download]')) return notify('Downloading the music file… check your Downloads folder.');
+  if (t.closest('[data-download]')) return notify(window.showDirectoryPicker ? 'Downloading the music file… check your Downloads folder.' : 'Downloading… when it finishes, tap Select Music File and pick the zip.');
 
   // 2. search
   if (t.closest('#searchClear') || t.closest('#searchScrim')) return closeSearch();
@@ -712,6 +793,18 @@ $('#autoRefresh').addEventListener('change', (e) => {
   if (e.target.checked) autoTimer = setInterval(autoRefreshTick, 30000);
 });
 
+$('#zipInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    state.dirHandle = await openZipAsFolder(file);
+    state.pending = null; state.lost = false;
+    await saveZip(file).catch(() => notify('Could not remember this file for next time.'));
+    await refreshLibrary();
+  } catch (err) { notify('Could not open the music file: ' + err.message); }
+  e.target.value = ''; // lets the same file be picked again later
+});
+
 // ===== Start =====
 // queryPermission() never shows a prompt: granted -> reconnect now, prompt -> wait for a click.
 async function connectStoredFolder(handle) {
@@ -729,10 +822,16 @@ async function init() {
   updateMuteIcon();
   updatePlayer();
   render();
-  if (!window.showDirectoryPicker) return;
+  if (!window.showDirectoryPicker) $('[data-action="choose"]').textContent = 'Select Music File';
   try {
-    const stored = await getHandle();
-    if (stored) await connectStoredFolder(stored);
+    if (window.showDirectoryPicker) {
+      const stored = await getHandle();
+      if (stored) await connectStoredFolder(stored);
+    }
+    if (!state.dirHandle && !state.pending && !state.lost) { // no remembered folder: try the remembered music zip
+      const zip = await getZip();
+      if (zip) { state.dirHandle = await openZipAsFolder(zip); await refreshLibrary(); }
+    }
   } catch { state.lost = true; }
   state.booting = false;
   render();
