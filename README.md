@@ -4,11 +4,7 @@
 
 Built with plain **HTML, CSS and vanilla JavaScript** as a BSc (Information Technology) project.
 
-> **Live demo:** `https://<your-github-username>.github.io/<repository-name>/`
-> *(replace with your GitHub Pages link after you publish)*
-
-<!-- Add a screenshot: save it as screenshots/home.png and uncomment the next line -->
-<!-- ![Musify Home page](screenshots/home.png) -->
+> **Live demo:** `[https://<your-github-username>.github.io/<repository-name>/](https://yaseen-2006.github.io/Musify---Music-player/)`
 
 ---
 
@@ -103,7 +99,7 @@ Then open `http://localhost:8000` in Chrome or Edge. You can also use the **Live
 1. Push the project to a GitHub repository.
 2. Go to **Settings → Pages**.
 3. Under **Build and deployment**, choose **Deploy from a branch**, select `main` and the `/ (root)` folder, then save.
-4. After a minute your site is live at `https://<your-github-username>.github.io/<repository-name>/`.
+4. After a minute your site is live at `[https://<your-github-username>.github.io/<repository-name>/](https://yaseen-2006.github.io/Musify---Music-player/)`.
 
 ---
 
@@ -170,8 +166,4 @@ No frameworks, no libraries, no backend.
 BSc (Information Technology) · Ramanand Arya D.A.V College (Autonomous), Mumbai
 📧 ysiddiqi71@gmail.com
 
-Project guide: Ms. Steffey Weseley
-
-## 📄 License
-
-This project was created for academic purposes. Add a license of your choice (for example MIT) before sharing it publicly.
+This project was created for academic purposes.
