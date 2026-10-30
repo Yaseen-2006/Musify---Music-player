@@ -33,8 +33,6 @@ main { overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrol
 
 .topbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
 .btn { background: var(--card); border: 1px solid var(--line); padding: 9px 16px; border-radius: 9px; transition: background .2s, border-color .2s, box-shadow .2s, transform .15s var(--ease); }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; color: inherit; font: inherit; cursor: pointer; }
-.empty .btn { margin: 4px 3px; }
 .btn:hover { border-color: var(--burgundy-light); }
 .btn:active { transform: scale(.97); }
 .btn.primary { background: linear-gradient(180deg, var(--burgundy-light), var(--burgundy)); border-color: var(--burgundy); box-shadow: 0 4px 14px rgba(122, 31, 53, .4); }
