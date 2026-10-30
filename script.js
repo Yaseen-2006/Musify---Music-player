@@ -19,6 +19,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5L21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   close: '<path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
   more: '<circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>',
+  download: '<path d="M12 4v10M7.5 10l4.5 4.5 4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
 };
 const icon = (name, size = 22) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -306,15 +307,18 @@ const recentCard = (s, i = 0) => `
 const songList = (songs) => `<div class="list">${songs.map((s, i) => songRow(s, i)).join('')}</div>`;
 
 const VINYL = '<svg class="vinyl" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#1e1819" stroke="#4a1626" stroke-width="2"/><circle cx="32" cy="32" r="22" fill="none" stroke="#2a2224"/><circle cx="32" cy="32" r="15" fill="none" stroke="#2a2224"/><circle cx="32" cy="32" r="10" fill="#7a1f35"/><circle cx="32" cy="32" r="2.5" fill="#d9b36c"/></svg>';
+// The zip with the sample music. Put it next to index.html (same folder) with exactly this name.
+const MUSIC_ZIP = 'musify-music.zip';
+const downloadButton = () => `<a class="btn" href="${MUSIC_ZIP}" download="${MUSIC_ZIP}" data-download>${icon('download', 18)}<span>Download Music File</span></a>`;
 const emptyState = (title, text, button = '', extra = '') => `<div class="empty ${extra}">${VINYL}<h2>${title}</h2><p>${text}</p>${button}</div>`;
 
 function libraryEmptyState() {
-  if (!window.showDirectoryPicker) return emptyState('Browser not supported', 'Musify needs the File System Access API. Open it in desktop Chrome or Edge.');
+  if (!window.showDirectoryPicker) return emptyState('Browser not supported', 'Musify needs the File System Access API. Open it in desktop Chrome or Edge. You can still download the music files below.', downloadButton());
   if (state.booting) return emptyState('Opening your library', 'Looking for the music folder you used last time…', '', 'spin');
-  if (state.lost) return emptyState('Music folder not accessible', 'The folder you chose earlier was moved, deleted or its permission was removed. Choose it again.', '<button class="btn primary" data-action="choose">Choose Music Folder</button>');
+  if (state.lost) return emptyState('Music folder not accessible', 'The folder you chose earlier was moved, deleted or its permission was removed. Choose it again.', '<button class="btn primary" data-action="choose">Choose Music Folder</button> ' + downloadButton());
   if (state.pending) return emptyState('Reconnect your music folder', 'Your browser needs your permission again before Musify can read the folder you used last time. Your files stay on your device.', '<button class="btn primary" data-action="reconnect">Reconnect Music Folder</button> <button class="btn" data-action="choose">Choose a different folder</button>');
   if (state.scanned) return emptyState('No music found', 'Add song folders containing song.mp3, info.json and cover.jpg to your music folder, then refresh the library.', '<button class="btn" data-action="refresh">Refresh Library</button>');
-  return emptyState('Welcome to Musify', 'Choose your Musify/music folder. Musify will scan every song folder inside it.', '<button class="btn primary" data-action="choose">Choose Music Folder</button>');
+  return emptyState('Welcome to Musify', 'Choose your Musify/music folder. Musify will scan every song folder inside it. Don\'t have the music yet? Download it first.', '<button class="btn primary" data-action="choose">Choose Music Folder</button> ' + downloadButton());
 }
 
 // ===== Rendering: Home (static shell + replaceable sections) =====
@@ -637,6 +641,9 @@ document.addEventListener('click', (e) => {
     return;
   }
   closeMenu(); // any other click closes an open menu
+
+  // download link: let the browser download the zip, just show a message
+  if (t.closest('[data-download]')) return notify('Downloading the music file… check your Downloads folder.');
 
   // 2. search
   if (t.closest('#searchClear') || t.closest('#searchScrim')) return closeSearch();
